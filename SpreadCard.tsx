@@ -1,5 +1,5 @@
 import React from 'react';
-import { SpreadImage } from '../types';
+import { SpreadImage } from './types';
 
 interface SpreadCardProps {
   image: SpreadImage;
