@@ -49,84 +49,70 @@ export const streamSpreadGeneration = async (
     systemInstruction: [SYSTEM_INSTRUCTION],
   };
 
-  const imageParts: any[] = [];
+  const parts: any[] = [];
 
-  // Load reference images from provided URLs
-  // Using the direct links provided
-  const referenceImageUrls = [
-    'https://i.ibb.co/PvWhDnNB/IMG-6743.jpg',
-    'https://i.ibb.co/Q2QbfRM/IMG-6744.jpg'
-  ];
+  // Load reference images from public folder.
+  // We assume the user has placed 'reference_1.png' and 'reference_2.png' in the public directory.
+  const referenceImageUrls = ['/reference_1.png', '/reference_2.png'];
   
-  // Attempt to fetch and process reference images
-  // We use a try-catch per image to ensure one bad image doesn't stop the flow
   for (const url of referenceImageUrls) {
     try {
-      const response = await fetch(url, { mode: 'cors' });
-      
-      if (!response.ok) {
-        console.warn(`Failed to fetch reference ${url}: ${response.status}`);
-        continue;
-      }
+      const response = await fetch(url);
+      if (response.ok) {
+        const blob = await response.blob();
+        
+        // Robust MIME type detection
+        let mimeType = blob.type;
+        const lowerUrl = url.toLowerCase();
 
-      // Basic content type check from headers
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('text/html')) {
-         console.warn(`Reference image ${url} returned HTML content-type. Skipping.`);
-         continue;
-      }
+        // If MIME type is generic/missing, or if we just want to be sure based on extension
+        if (!mimeType || mimeType === 'application/octet-stream' || mimeType === 'text/html') {
+             if (lowerUrl.endsWith('.png')) mimeType = 'image/png';
+             else if (lowerUrl.endsWith('.jpg') || lowerUrl.endsWith('.jpeg')) mimeType = 'image/jpeg';
+             else if (lowerUrl.endsWith('.webp')) mimeType = 'image/webp';
+             else if (lowerUrl.endsWith('.heic')) mimeType = 'image/heic';
+             else if (lowerUrl.endsWith('.heif')) mimeType = 'image/heif';
+        }
+        
+        // Force 'image/png' if we still don't have a valid image type but it's a known image extension
+        // This handles cases where local dev servers serve images as text/html or other types
+        if (!mimeType.startsWith('image/')) {
+            if (lowerUrl.endsWith('.png')) mimeType = 'image/png';
+            else if (lowerUrl.endsWith('.jpg') || lowerUrl.endsWith('.jpeg')) mimeType = 'image/jpeg';
+        }
 
-      const blob = await response.blob();
-      
-      // Secondary check on the blob type
-      if (blob.type.includes('text/html')) {
-        console.warn(`Reference image ${url} is HTML blob. Skipping.`);
-        continue;
-      }
-      
-      if (blob.size < 1000) {
-         console.warn(`Reference image ${url} is too small (${blob.size} bytes). Skipping.`);
-         continue;
-      }
-      
-      let mimeType = blob.type;
-      const lowerUrl = url.toLowerCase();
+        // Final safety check
+        if (!mimeType.startsWith('image/')) {
+            console.warn(`Skipping reference ${url}: Could not determine valid image mime type (got ${blob.type})`);
+            continue;
+        }
 
-      // If generic, guess from extension
-      if (!mimeType || mimeType === 'application/octet-stream') {
-           if (lowerUrl.endsWith('.png')) mimeType = 'image/png';
-           else if (lowerUrl.endsWith('.jpg') || lowerUrl.endsWith('.jpeg')) mimeType = 'image/jpeg';
-           else if (lowerUrl.endsWith('.webp')) mimeType = 'image/webp';
-           else if (lowerUrl.endsWith('.heic')) mimeType = 'image/heic';
-      }
-      
-      if (!mimeType.startsWith('image/')) {
-          console.warn(`Skipping reference ${url}: Invalid mime type ${mimeType}`);
-          continue;
-      }
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const result = reader.result as string;
+            // Remove data:image/png;base64, prefix if present
+            if (result.includes(',')) {
+                resolve(result.split(',')[1]);
+            } else {
+                resolve(result);
+            }
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
 
-      const base64Data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const result = reader.result as string;
-          // Remove data prefix if present
-          if (result.includes(',')) {
-              resolve(result.split(',')[1]);
-          } else {
-              resolve(result);
-          }
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-
-      if (base64Data) {
-          imageParts.push({
+        if (base64Data) {
+            parts.push({
             inlineData: {
                 mimeType: mimeType,
                 data: base64Data
             }
-          });
+            });
+        }
+      } else {
+        // Just warn, don't break. This is expected if the user only added one image.
+        console.warn(`Reference image not found: ${url}. Proceeding without it.`);
       }
     } catch (error) {
       console.warn(`Failed to load reference image ${url}:`, error);
@@ -135,78 +121,65 @@ export const streamSpreadGeneration = async (
 
   const prefix = "{generate the pages following these two spreads matching font size divider lines etc etc. the following is the next for the couple next spreads plan accordingly create one at a time. }";
   
-  const textPart = {
+  parts.push({
     text: `${prefix}\n\n${inputText}`,
-  };
+  });
 
-  // Helper function to execute generation
-  // Allows us to retry if the first attempt with images fails
-  const executeGeneration = async (includeImages: boolean) => {
-    const parts = includeImages ? [...imageParts, textPart] : [textPart];
-    
-    const contents = [
-        {
-        role: 'user',
-        parts: parts,
-        },
-    ];
+  const contents = [
+    {
+      role: 'user',
+      parts: parts,
+    },
+  ];
 
+  try {
     const responseStream = await ai.models.generateContentStream({
-        model,
-        config,
-        contents,
+      model,
+      config,
+      contents,
     });
 
     for await (const chunk of responseStream) {
-        const candidates = chunk.candidates;
-        if (!candidates || candidates.length === 0) continue;
+      const candidates = chunk.candidates;
+      if (!candidates || candidates.length === 0) continue;
 
-        const content = candidates[0].content;
-        if (!content || !content.parts) continue;
+      const content = candidates[0].content;
+      if (!content || !content.parts) continue;
 
-        for (const part of content.parts) {
-            if (part.inlineData) {
-                const mimeType = part.inlineData.mimeType || 'image/png';
-                const data = part.inlineData.data;
-                const url = `data:${mimeType};base64,${data}`;
-                const id = crypto.randomUUID();
+      for (const part of content.parts) {
+        if (part.inlineData) {
+          const mimeType = part.inlineData.mimeType || 'image/png';
+          const data = part.inlineData.data;
+          const url = `data:${mimeType};base64,${data}`;
+          const id = crypto.randomUUID();
 
-                const image: SpreadImage = {
-                    id,
-                    url,
-                    mimeType,
-                };
-                onImage(image);
+          // 1. Emit local image immediately for UI feedback
+          const image: SpreadImage = {
+            id,
+            url,
+            mimeType,
+          };
+          onImage(image);
 
-                // Upload to ImgBB
-                uploadToImgBB(data).then((remoteUrl) => {
-                    if (remoteUrl) {
-                        onImage({
-                            ...image,
-                            remoteUrl: remoteUrl
-                        });
-                    }
+          // 2. Upload to ImgBB in background
+          uploadToImgBB(data).then((remoteUrl) => {
+            if (remoteUrl) {
+                console.log("Uploaded to ImgBB:", remoteUrl);
+                // 3. Update the image with the remote URL
+                onImage({
+                    ...image,
+                    remoteUrl: remoteUrl
                 });
-            } else if (part.text) {
-                onText(part.text);
             }
-        }
-    }
-  };
+          });
 
-  try {
-    // 1. Try with reference images if we have any
-    await executeGeneration(imageParts.length > 0);
-  } catch (error: any) {
-    // 2. If it fails with a 400 error (Invalid Argument) and we included images, 
-    // it's likely the images were rejected by the API. Retry without them.
-    if (imageParts.length > 0 && (error.toString().includes('400') || error.message?.includes('INVALID_ARGUMENT'))) {
-        console.warn("Generation with reference images failed (likely API rejection). Retrying with text only...");
-        await executeGeneration(false);
-    } else {
-        // Re-throw if it's a different error or we didn't use images
-        console.error("Error generating spreads:", error);
-        throw error;
+        } else if (part.text) {
+          onText(part.text);
+        }
+      }
     }
+  } catch (error) {
+    console.error("Error generating spreads:", error);
+    throw error;
   }
 };
