@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import InputArea from './components/InputArea';
-import SpreadCard from './components/SpreadCard';
+import SpreadCard from './SpreadCard';
 import { streamSpreadGeneration } from './services/geminiService';
 import { SpreadImage } from './types';
 
