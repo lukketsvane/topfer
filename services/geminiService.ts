@@ -61,9 +61,29 @@ export const streamSpreadGeneration = async (
       if (response.ok) {
         const blob = await response.blob();
         
-        // Ensure strictly image types to avoid 500 errors on the backend if it gets HTML or something else
-        if (!blob.type.startsWith('image/')) {
-            console.warn(`Skipping reference ${url}: Invalid mime type ${blob.type}`);
+        // Robust MIME type detection
+        let mimeType = blob.type;
+        const lowerUrl = url.toLowerCase();
+
+        // If MIME type is generic/missing, or if we just want to be sure based on extension
+        if (!mimeType || mimeType === 'application/octet-stream' || mimeType === 'text/html') {
+             if (lowerUrl.endsWith('.png')) mimeType = 'image/png';
+             else if (lowerUrl.endsWith('.jpg') || lowerUrl.endsWith('.jpeg')) mimeType = 'image/jpeg';
+             else if (lowerUrl.endsWith('.webp')) mimeType = 'image/webp';
+             else if (lowerUrl.endsWith('.heic')) mimeType = 'image/heic';
+             else if (lowerUrl.endsWith('.heif')) mimeType = 'image/heif';
+        }
+        
+        // Force 'image/png' if we still don't have a valid image type but it's a known image extension
+        // This handles cases where local dev servers serve images as text/html or other types
+        if (!mimeType.startsWith('image/')) {
+            if (lowerUrl.endsWith('.png')) mimeType = 'image/png';
+            else if (lowerUrl.endsWith('.jpg') || lowerUrl.endsWith('.jpeg')) mimeType = 'image/jpeg';
+        }
+
+        // Final safety check
+        if (!mimeType.startsWith('image/')) {
+            console.warn(`Skipping reference ${url}: Could not determine valid image mime type (got ${blob.type})`);
             continue;
         }
 
@@ -71,9 +91,12 @@ export const streamSpreadGeneration = async (
           const reader = new FileReader();
           reader.onloadend = () => {
             const result = reader.result as string;
-            // Remove data:image/png;base64, prefix
-            const base64 = result.split(',')[1];
-            resolve(base64);
+            // Remove data:image/png;base64, prefix if present
+            if (result.includes(',')) {
+                resolve(result.split(',')[1]);
+            } else {
+                resolve(result);
+            }
           };
           reader.onerror = reject;
           reader.readAsDataURL(blob);
@@ -82,13 +105,13 @@ export const streamSpreadGeneration = async (
         if (base64Data) {
             parts.push({
             inlineData: {
-                mimeType: blob.type,
+                mimeType: mimeType,
                 data: base64Data
             }
             });
         }
       } else {
-        // Just warn, don't break
+        // Just warn, don't break. This is expected if the user only added one image.
         console.warn(`Reference image not found: ${url}. Proceeding without it.`);
       }
     } catch (error) {

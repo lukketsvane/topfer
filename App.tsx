@@ -5,9 +5,9 @@ import { streamSpreadGeneration } from './services/geminiService';
 import { SpreadImage } from './types';
 
 const App: React.FC = () => {
-  const [messages, setMessages] = useState<Array<{role: 'user' | 'model', content: string}>>([]);
   const [generatedImages, setGeneratedImages] = useState<SpreadImage[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  // Use a counter to track concurrent requests
+  const [loadingCount, setLoadingCount] = useState(0);
   const [hasKey, setHasKey] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -20,7 +20,6 @@ const App: React.FC = () => {
       setHasKey(selected);
     } else {
         // Fallback for dev environments without the extension context
-        // We assume env var is present or handle error later
         setHasKey(true); 
     }
   };
@@ -33,19 +32,18 @@ const App: React.FC = () => {
     const win = window as any;
     if (win.aistudio && win.aistudio.openSelectKey) {
       await win.aistudio.openSelectKey();
-      // Assume success as per instructions, or recheck
       checkKey();
     }
   };
 
-  const handleSend = async (text: string) => {
+  const handleSend = (text: string) => {
     if (!text.trim()) return;
 
-    setMessages(prev => [...prev, { role: 'user', content: text }]);
-    setIsLoading(true);
+    // Increment loading counter
+    setLoadingCount(prev => prev + 1);
 
-    try {
-      await streamSpreadGeneration(
+    // We do not await here to allow the UI to remain responsive for new inputs immediately
+    streamSpreadGeneration(
         text,
         (image) => {
           setGeneratedImages(prev => {
@@ -61,22 +59,23 @@ const App: React.FC = () => {
           });
         },
         (chunkText) => {
-            // Optionally log text chunks or show them as status updates
-            console.log('Model thought:', chunkText);
+            // Optional: log model thinking
         }
-      );
-    } catch (error) {
-      console.error(error);
-      alert("Failed to generate spreads. Please try again or check console for details.");
-    } finally {
-      setIsLoading(false);
-    }
+      )
+      .catch(error => {
+        console.error(error);
+        alert("Failed to generate spreads. Please try again.");
+      })
+      .finally(() => {
+        // Decrement loading counter
+        setLoadingCount(prev => prev - 1);
+      });
   };
 
-  // Scroll to bottom when new content arrives
+  // Scroll to bottom when new images arrive
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, generatedImages, isLoading]);
+  }, [generatedImages, loadingCount]);
 
   if (!hasKey) {
     return (
@@ -108,30 +107,22 @@ const App: React.FC = () => {
       <main className="flex-1 w-full max-w-screen-md mx-auto px-4 pb-32 pt-12">
         
         {/* Intro / Empty State */}
-        {messages.length === 0 && generatedImages.length === 0 && (
+        {generatedImages.length === 0 && loadingCount === 0 && (
           <div className="flex flex-col items-center justify-center h-[60vh] opacity-40 animate-fade-in">
             <h1 className="text-4xl font-bold tracking-tight text-gray-300 mb-2">SpreadGen</h1>
             <p className="text-gray-400 font-medium">Academic Aesthetics</p>
           </div>
         )}
 
-        {/* User Messages & Generated Spreads Feed */}
+        {/* Generated Spreads Feed */}
         <div className="space-y-8">
-            {messages.map((msg, i) => (
-                <div key={i} className="flex justify-end mb-4">
-                    <div className="bg-blue-500 text-white px-4 py-2.5 rounded-[20px] rounded-br-none max-w-[85%] text-[15px] shadow-sm leading-relaxed">
-                        {msg.content}
-                    </div>
-                </div>
-            ))}
-            
             {generatedImages.map((img, i) => (
                 <SpreadCard key={img.id} image={img} index={i} />
             ))}
         </div>
 
-        {/* Loading Indicator */}
-        {isLoading && (
+        {/* Loading Indicator - Shows if any request is active */}
+        {loadingCount > 0 && (
           <div className="flex items-center justify-center py-12 space-x-2 animate-pulse">
             <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
             <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
@@ -142,7 +133,8 @@ const App: React.FC = () => {
         <div ref={bottomRef} />
       </main>
 
-      <InputArea onSend={handleSend} disabled={isLoading} />
+      {/* Input Area is only disabled if we don't have a key, allowing concurrent requests */}
+      <InputArea onSend={handleSend} disabled={!hasKey} />
     </div>
   );
 };
