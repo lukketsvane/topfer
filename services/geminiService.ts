@@ -2,10 +2,35 @@ import { GoogleGenAI } from "@google/genai";
 import { SYSTEM_INSTRUCTION } from "../constants";
 import { SpreadImage } from "../types";
 
+const IMGBB_API_KEY = "67bc9085dfd47a9a6df5409995e66874";
+
 // This will be called fresh each time to ensure we get the selected key
 const createAIClient = () => {
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
+
+async function uploadToImgBB(base64Image: string): Promise<string | null> {
+  const formData = new FormData();
+  formData.append("key", IMGBB_API_KEY);
+  formData.append("image", base64Image);
+
+  try {
+    const response = await fetch("https://api.imgbb.com/1/upload", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await response.json();
+    if (data && data.data && data.data.url) {
+      return data.data.url;
+    } else {
+      console.error("ImgBB Upload Failed:", data);
+      return null;
+    }
+  } catch (error) {
+    console.error("Error uploading to ImgBB:", error);
+    return null;
+  }
+}
 
 export const streamSpreadGeneration = async (
   inputText: string,
@@ -16,7 +41,7 @@ export const streamSpreadGeneration = async (
   const model = 'gemini-3-pro-image-preview';
   
   const config = {
-    responseModalities: ['IMAGE', 'TEXT'] as any, // Cast because SDK types might trail actual features for preview models
+    responseModalities: ['IMAGE', 'TEXT'] as any,
     imageConfig: {
       aspectRatio: '3:2',
       imageSize: '4K',
@@ -35,6 +60,13 @@ export const streamSpreadGeneration = async (
       const response = await fetch(url);
       if (response.ok) {
         const blob = await response.blob();
+        
+        // Ensure strictly image types to avoid 500 errors on the backend if it gets HTML or something else
+        if (!blob.type.startsWith('image/')) {
+            console.warn(`Skipping reference ${url}: Invalid mime type ${blob.type}`);
+            continue;
+        }
+
         const base64Data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => {
@@ -47,14 +79,17 @@ export const streamSpreadGeneration = async (
           reader.readAsDataURL(blob);
         });
 
-        parts.push({
-          inlineData: {
-            mimeType: blob.type || 'image/png',
-            data: base64Data
-          }
-        });
+        if (base64Data) {
+            parts.push({
+            inlineData: {
+                mimeType: blob.type,
+                data: base64Data
+            }
+            });
+        }
       } else {
-        console.warn(`Reference image not found: ${url}. Make sure to add it to the public folder.`);
+        // Just warn, don't break
+        console.warn(`Reference image not found: ${url}. Proceeding without it.`);
       }
     } catch (error) {
       console.warn(`Failed to load reference image ${url}:`, error);
@@ -93,13 +128,28 @@ export const streamSpreadGeneration = async (
           const mimeType = part.inlineData.mimeType || 'image/png';
           const data = part.inlineData.data;
           const url = `data:${mimeType};base64,${data}`;
-          
+          const id = crypto.randomUUID();
+
+          // 1. Emit local image immediately for UI feedback
           const image: SpreadImage = {
-            id: crypto.randomUUID(),
+            id,
             url,
             mimeType,
           };
           onImage(image);
+
+          // 2. Upload to ImgBB in background
+          uploadToImgBB(data).then((remoteUrl) => {
+            if (remoteUrl) {
+                console.log("Uploaded to ImgBB:", remoteUrl);
+                // 3. Update the image with the remote URL
+                onImage({
+                    ...image,
+                    remoteUrl: remoteUrl
+                });
+            }
+          });
+
         } else if (part.text) {
           onText(part.text);
         }

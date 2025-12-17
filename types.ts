@@ -1,6 +1,7 @@
 export interface SpreadImage {
   id: string;
   url: string;
+  remoteUrl?: string;
   mimeType: string;
 }
 

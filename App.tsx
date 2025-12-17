@@ -48,7 +48,17 @@ const App: React.FC = () => {
       await streamSpreadGeneration(
         text,
         (image) => {
-          setGeneratedImages(prev => [...prev, image]);
+          setGeneratedImages(prev => {
+            const index = prev.findIndex(p => p.id === image.id);
+            if (index !== -1) {
+              // Update existing image (e.g. adding remoteUrl)
+              const newImages = [...prev];
+              newImages[index] = { ...newImages[index], ...image };
+              return newImages;
+            }
+            // Add new image
+            return [...prev, image];
+          });
         },
         (chunkText) => {
             // Optionally log text chunks or show them as status updates
@@ -57,7 +67,7 @@ const App: React.FC = () => {
       );
     } catch (error) {
       console.error(error);
-      alert("Failed to generate spreads. Ensure you have selected a valid API Key.");
+      alert("Failed to generate spreads. Please try again or check console for details.");
     } finally {
       setIsLoading(false);
     }
