@@ -58,15 +58,31 @@ export const streamSpreadGeneration = async (
   for (const url of referenceImageUrls) {
     try {
       const response = await fetch(url);
+      
+      // Check headers first if available to detect HTML fallback
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('text/html')) {
+         console.warn(`Reference image ${url} returned HTML (likely SPA fallback). Skipping.`);
+         continue;
+      }
+
       if (response.ok) {
         const blob = await response.blob();
         
-        // Robust MIME type detection
         let mimeType = blob.type;
         const lowerUrl = url.toLowerCase();
 
-        // If MIME type is generic/missing, or if we just want to be sure based on extension
-        if (!mimeType || mimeType === 'application/octet-stream' || mimeType === 'text/html') {
+        // STRICT CHECK: If the blob is HTML, it is definitely not an image we can use.
+        // This prevents the app from sending the index.html file as an image to Gemini,
+        // which causes the 400 Invalid Argument error.
+        if (mimeType.includes('text/html')) {
+             console.warn(`Reference image ${url} is text/html. Skipping.`);
+             continue;
+        }
+
+        // If MIME type is generic/missing, we can try to guess based on extension,
+        // but ONLY if we are sure it's not HTML.
+        if (!mimeType || mimeType === 'application/octet-stream') {
              if (lowerUrl.endsWith('.png')) mimeType = 'image/png';
              else if (lowerUrl.endsWith('.jpg') || lowerUrl.endsWith('.jpeg')) mimeType = 'image/jpeg';
              else if (lowerUrl.endsWith('.webp')) mimeType = 'image/webp';
@@ -74,14 +90,7 @@ export const streamSpreadGeneration = async (
              else if (lowerUrl.endsWith('.heif')) mimeType = 'image/heif';
         }
         
-        // Force 'image/png' if we still don't have a valid image type but it's a known image extension
-        // This handles cases where local dev servers serve images as text/html or other types
-        if (!mimeType.startsWith('image/')) {
-            if (lowerUrl.endsWith('.png')) mimeType = 'image/png';
-            else if (lowerUrl.endsWith('.jpg') || lowerUrl.endsWith('.jpeg')) mimeType = 'image/jpeg';
-        }
-
-        // Final safety check
+        // Final safety check: if it's still not an image type, skip it.
         if (!mimeType.startsWith('image/')) {
             console.warn(`Skipping reference ${url}: Could not determine valid image mime type (got ${blob.type})`);
             continue;
@@ -111,7 +120,7 @@ export const streamSpreadGeneration = async (
             });
         }
       } else {
-        // Just warn, don't break. This is expected if the user only added one image.
+        // Just warn, don't break. This is expected if the user only added one image or none.
         console.warn(`Reference image not found: ${url}. Proceeding without it.`);
       }
     } catch (error) {
