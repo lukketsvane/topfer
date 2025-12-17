@@ -51,18 +51,21 @@ export const streamSpreadGeneration = async (
 
   const parts: any[] = [];
 
-  // Load reference images from public folder.
-  // We assume the user has placed 'reference_1.png' and 'reference_2.png' in the public directory.
-  const referenceImageUrls = ['/reference_1.png', '/reference_2.png'];
+  // Load reference images from provided URLs
+  const referenceImageUrls = [
+    'https://i.ibb.co/PvWhDnNB/IMG-6743.jpg',
+    'https://i.ibb.co/Q2QbfRM/IMG-6744.jpg'
+  ];
   
   for (const url of referenceImageUrls) {
     try {
-      const response = await fetch(url);
+      // Use 'cors' mode to ensure we can read the response
+      const response = await fetch(url, { mode: 'cors' });
       
       // Check headers first if available to detect HTML fallback
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('text/html')) {
-         console.warn(`Reference image ${url} returned HTML (likely SPA fallback). Skipping.`);
+         console.warn(`Reference image ${url} returned HTML. Skipping.`);
          continue;
       }
 
@@ -73,8 +76,6 @@ export const streamSpreadGeneration = async (
         const lowerUrl = url.toLowerCase();
 
         // STRICT CHECK: If the blob is HTML, it is definitely not an image we can use.
-        // This prevents the app from sending the index.html file as an image to Gemini,
-        // which causes the 400 Invalid Argument error.
         if (mimeType.includes('text/html')) {
              console.warn(`Reference image ${url} is text/html. Skipping.`);
              continue;
@@ -120,8 +121,7 @@ export const streamSpreadGeneration = async (
             });
         }
       } else {
-        // Just warn, don't break. This is expected if the user only added one image or none.
-        console.warn(`Reference image not found: ${url}. Proceeding without it.`);
+        console.warn(`Reference image fetch failed for ${url}: ${response.status} ${response.statusText}`);
       }
     } catch (error) {
       console.warn(`Failed to load reference image ${url}:`, error);
