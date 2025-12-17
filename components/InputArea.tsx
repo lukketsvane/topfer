@@ -14,8 +14,8 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, placeholder = "
     const textarea = textareaRef.current;
     if (textarea) {
       textarea.style.height = 'auto';
-      // Max height constraint (approx 4-5 lines)
-      const newHeight = Math.min(textarea.scrollHeight, 120);
+      // Increased max height significantly (approx 320px) to accommodate long text inputs typical for book content
+      const newHeight = Math.min(textarea.scrollHeight, 320);
       textarea.style.height = `${newHeight}px`;
     }
   };
@@ -35,7 +35,7 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, placeholder = "
   };
 
   return (
-    <div className="fixed bottom-0 left-0 w-full z-50 px-4 pb-6 pt-2 bg-gradient-to-t from-[#F2F2F7] via-[#F2F2F7] to-transparent">
+    <div className="fixed bottom-0 left-0 w-full z-50 px-4 pb-8 pt-2 bg-gradient-to-t from-[#F2F2F7] via-[#F2F2F7] to-transparent">
       <div className="max-w-screen-md mx-auto">
         <div className="relative group">
             <div className={`absolute inset-0 bg-white rounded-[26px] shadow-sm transition-shadow duration-200 pointer-events-none ${disabled ? 'opacity-50' : 'group-focus-within:shadow-md'}`}></div>
@@ -47,7 +47,7 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, placeholder = "
                 disabled={disabled}
                 placeholder={disabled ? "Processing..." : placeholder}
                 rows={1}
-                className="relative w-full bg-transparent border-none rounded-[26px] py-[13px] px-5 pr-12 text-[17px] leading-[1.3] text-black placeholder-gray-400 focus:ring-0 focus:outline-none resize-none overflow-hidden max-h-[120px] font-normal disabled:opacity-50"
+                className="relative w-full bg-transparent border-none rounded-[26px] py-[13px] px-5 pr-14 text-[17px] leading-[1.5] text-black placeholder-gray-400 focus:ring-0 focus:outline-none resize-none overflow-hidden max-h-[320px] font-normal disabled:opacity-50"
                 style={{ WebkitAppearance: 'none' }}
             />
             
@@ -59,14 +59,15 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, placeholder = "
                     }
                 }}
                 disabled={!text.trim() || disabled}
-                className={`absolute right-1.5 bottom-1.5 p-2 rounded-full transition-all duration-200 ${
+                className={`absolute right-3 bottom-2 p-2 transition-all duration-200 ${
                     text.trim() && !disabled 
-                    ? 'bg-blue-500 text-white scale-100 opacity-100' 
-                    : 'bg-gray-200 text-gray-400 scale-90 opacity-0 pointer-events-none'
+                    ? 'opacity-100' 
+                    : 'opacity-0 pointer-events-none'
                 }`}
             >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M5 12h14M12 5l7 7-7 7" />
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-black">
+                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                    <polyline points="5 12 12 5 19 12"></polyline>
                 </svg>
             </button>
         </div>

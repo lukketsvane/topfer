@@ -24,14 +24,53 @@ export const streamSpreadGeneration = async (
     systemInstruction: [SYSTEM_INSTRUCTION],
   };
 
+  const parts: any[] = [];
+
+  // Load reference images from public folder.
+  // We assume the user has placed 'reference_1.png' and 'reference_2.png' in the public directory.
+  const referenceImageUrls = ['/reference_1.png', '/reference_2.png'];
+  
+  for (const url of referenceImageUrls) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        const blob = await response.blob();
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const result = reader.result as string;
+            // Remove data:image/png;base64, prefix
+            const base64 = result.split(',')[1];
+            resolve(base64);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+
+        parts.push({
+          inlineData: {
+            mimeType: blob.type || 'image/png',
+            data: base64Data
+          }
+        });
+      } else {
+        console.warn(`Reference image not found: ${url}. Make sure to add it to the public folder.`);
+      }
+    } catch (error) {
+      console.warn(`Failed to load reference image ${url}:`, error);
+    }
+  }
+
+  const prefix = "{generate the pages following these two spreads matching font size divider lines etc etc. the following is the next for the couple next spreads plan accordingly create one at a time. }";
+  
+  parts.push({
+    text: `${prefix}\n\n${inputText}`,
+  });
+
   const contents = [
     {
       role: 'user',
-      parts: [
-        {
-          text: inputText,
-        },
-      ],
+      parts: parts,
     },
   ];
 
